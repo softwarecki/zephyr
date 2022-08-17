@@ -11,3 +11,6 @@ zephyr_library_sources(
   power_down.S
   power.c
   )
+
+zephyr_library_sources_ifdef(CONFIG_SOC_INTEL_COMM_WIDGET comm_widget.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_INTEL_COMM_WIDGET comm_widget_messages.c)
