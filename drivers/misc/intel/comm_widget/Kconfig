@@ -1,0 +1,14 @@
+# Communication widget configuration options
+
+# Copyright (c) 2022 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+DT_COMPAT_MISC_INTEL_COMM_WIDGET := intel,adsp-communication-widget
+
+config MISC_INTEL_COMM_WIDGET
+	bool "Intel Communication Widget driver"
+	default $(dt_compat_enabled,$(DT_COMPAT_MISC_INTEL_COMM_WIDGET))
+	depends on SOC_SERIES_INTEL_ACE
+	help
+	  Select this to enable Intel Communication Widget driver.
+	  DSP Communication Widget is a device for generic sideband message transmit/receive.

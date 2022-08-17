@@ -430,5 +430,13 @@
 			lps = <&lps>;
 			bit-position = <13>;
 		};
+
+		ace_comm_widget: comm_widget@71C00 {
+			compatible = "intel,adsp-communication-widget";
+			reg = <0x00071C00 0x88>;
+			interrupts = <0x19 0 0>;
+			interrupt-parent = <&ace_intc>;
+			status = "okay";
+		};
 	};
 };
