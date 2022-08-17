@@ -1,0 +1,29 @@
+# Communication widget configuration options
+
+# Copyright (c) 2022 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+DT_COMPAT_MISC_INTEL_COMM_WIDGET := intel,adsp-communication-widget
+
+config MISC_INTEL_COMM_WIDGET
+	bool "Intel Communication Widget driver"
+	default $(dt_compat_enabled,$(DT_COMPAT_MISC_INTEL_COMM_WIDGET))
+	help
+	  Select this to enable Intel Communication Widget driver.
+	  DSP Communication Widget is a device for generic sideband message transmit/receive.
+
+if MISC_INTEL_COMM_WIDGET
+
+config MISC_INTEL_COMM_WIDGET_THREAD_STACK_SIZE
+	int "Stack size for the data exchange thread"
+	default 128
+	help
+	  Size of the stack used for the internal data exchange thread.
+
+config MISC_INTEL_COMM_WIDGET_THREAD_PRIO
+	int "Priority for the data exchange thread"
+	default 0
+	help
+	  Priority level for the internal data exchange thread.
+
+endif # MISC_INTEL_COMM_WIDGET
