@@ -47,13 +47,13 @@ DEVICE_MMIO_TOPLEVEL_STATIC(tlb_regs, DT_DRV_INST(0));
  * Number of significant bits in the page index (defines the size of
  * the table)
  */
-#define TLB_PADDR_SIZE DT_INST_PROP(0, paddr_size)
-#define TLB_EXEC_BIT   BIT(DT_INST_PROP(0, exec_bit_idx))
-#define TLB_WRITE_BIT  BIT(DT_INST_PROP(0, write_bit_idx))
+#define TLB_PADDR_SIZE				DT_INST_PROP(0, paddr_size)
+#define TLB_EXEC_BIT				BIT(DT_INST_PROP(0, exec_bit_idx))
+#define TLB_WRITE_BIT				BIT(DT_INST_PROP(0, write_bit_idx))
 
-#define TLB_ENTRY_NUM (1 << TLB_PADDR_SIZE)
-#define TLB_PADDR_MASK ((1 << TLB_PADDR_SIZE) - 1)
-#define TLB_ENABLE_BIT BIT(TLB_PADDR_SIZE)
+#define TLB_ENTRY_NUM				(1 << TLB_PADDR_SIZE)
+#define TLB_PADDR_MASK				((1 << TLB_PADDR_SIZE) - 1)
+#define TLB_ENABLE_BIT				BIT(TLB_PADDR_SIZE)
 
 /* This is used to translate from TLB entry back to physical address. */
 #define TLB_PHYS_BASE  \
@@ -62,15 +62,26 @@ DEVICE_MMIO_TOPLEVEL_STATIC(tlb_regs, DT_DRV_INST(0));
 	((ROUND_DOWN((hpsram_ebb_quantity) + 31u, 32u) / 32u) - 1u)
 
 #define L2_SRAM_PAGES_NUM			(L2_SRAM_SIZE / CONFIG_MM_DRV_PAGE_SIZE)
-#define MAX_EBB_BANKS_IN_SEGMENT	32
-#define SRAM_BANK_SIZE				(128 * 1024)
+#define MAX_EBB_BANKS_IN_SEGMENT		32
+#define SRAM_BANK_SIZE				KB(128)
 #define L2_SRAM_BANK_NUM			(L2_SRAM_SIZE / SRAM_BANK_SIZE)
-#define IS_BIT_SET(value, idx)		((value) & (1 << (idx)))
+#define IS_BIT_SET(value, idx)			((value) & (1 << (idx)))
+#define PMC_COMMUNICATION			defined(CONFIG_SOC_SERIES_INTEL_ACE) && \
+						defined(CONFIG_MISC_INTEL_COMM_WIDGET)
 
 static struct k_spinlock tlb_lock;
 extern struct k_spinlock sys_mm_drv_common_lock;
 
 static int hpsram_ref[L2_SRAM_BANK_NUM];
+#if PMC_COMMUNICATION
+#include <zephyr/drivers/misc/intel/comm_widget.h>
+
+#define PMC_COMMUNICATION_DEV		DT_PHANDLE_BY_IDX(DT_NODELABEL(tlb), pmc_communication, 0)
+
+static uint32_t used_pages;
+static uint32_t used_pages_reported;
+static const struct device *pmc_comm;
+#endif
 
 /* declare L2 physical memory block */
 SYS_MEM_BLOCKS_DEFINE_WITH_EXT_BUF(
@@ -202,6 +213,21 @@ static int sys_mm_drv_hpsram_pwr(uint32_t bank_idx, bool enable, bool non_blocki
 	return 0;
 }
 
+#if PMC_COMMUNICATION
+static void sys_mm_drv_report_page_usage()
+{
+	if (!device_is_ready(pmc_comm))
+		return;
+
+	uint32_t banks = ceiling_fraction(used_pages, KB(32) / CONFIG_MM_DRV_PAGE_SIZE);
+
+	if (used_pages_reported != banks) {
+		used_pages_reported = banks;
+		intel_comm_widget_pmc_send_ipc(pmc_comm, banks);
+	}
+}
+#endif
+
 int sys_mm_drv_map_page(void *virt, uintptr_t phys, uint32_t flags)
 {
 	k_spinlock_key_t key;
@@ -270,8 +296,12 @@ int sys_mm_drv_map_page(void *virt, uintptr_t phys, uint32_t flags)
 
 	entry_idx = get_tlb_entry_idx(va);
 
-	bank_idx = get_hpsram_bank_idx(pa);
+#if PMC_COMMUNICATION
+	used_pages++;
+	sys_mm_drv_report_page_usage();
+#endif
 
+	bank_idx = get_hpsram_bank_idx(pa);
 	if (!hpsram_ref[bank_idx]++) {
 		sys_mm_drv_hpsram_pwr(bank_idx, true, false);
 	}
@@ -406,6 +436,11 @@ int sys_mm_drv_unmap_page(void *virt)
 					       UINT_TO_POINTER(pa), 1);
 
 		bank_idx = get_hpsram_bank_idx(pa);
+#if PMC_COMMUNICATION
+		used_pages--;
+		sys_mm_drv_report_page_usage();
+#endif
+
 		if (--hpsram_ref[bank_idx] == 0) {
 			sys_mm_drv_hpsram_pwr(bank_idx, false, false);
 		}
@@ -665,6 +700,9 @@ static int sys_mm_drv_mm_init(const struct device *dev)
 	for (int i = 0; i < L2_SRAM_BANK_NUM; i++) {
 		hpsram_ref[i] = SRAM_BANK_SIZE / CONFIG_MM_DRV_PAGE_SIZE;
 	}
+#if PMC_COMMUNICATION
+	used_pages = L2_SRAM_BANK_NUM * SRAM_BANK_SIZE / CONFIG_MM_DRV_PAGE_SIZE;
+#endif
 
 	/*
 	 * find virtual address range which are unused
@@ -692,7 +730,15 @@ static int sys_mm_drv_mm_init(const struct device *dev)
 	ret = sys_mm_drv_unmap_region(UINT_TO_POINTER(unused_l2_start_aligned),
 				      unused_size);
 
+	/*
+	 * Get communication widget device and notify PMC about used HP-SRAM pages.
+	 */
+#if PMC_COMMUNICATION
+	pmc_comm = DEVICE_DT_GET(PMC_COMMUNICATION_DEV);
+	sys_mm_drv_report_page_usage();
+#endif
+
 	return 0;
 }
 
-SYS_INIT(sys_mm_drv_mm_init, POST_KERNEL, 0);
+SYS_INIT(sys_mm_drv_mm_init, POST_KERNEL, 1);

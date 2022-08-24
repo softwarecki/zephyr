@@ -168,6 +168,7 @@
 			paddr-size = <12>;
 			exec-bit-idx = <14>;
 			write-bit-idx= <15>;
+			pmc-communication = <&ace_comm_widget>;
 		};
 
 		lpgpdma0: dma@7c000 {

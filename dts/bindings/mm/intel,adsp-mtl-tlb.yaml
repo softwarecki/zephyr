@@ -24,3 +24,8 @@ properties:
     write-bit-idx:
         type: int
         description: Index of the write permission bit.
+
+    pmc-communication:
+      type: phandle
+      required: false
+      description: Gateway device used to reporting of used memory blocks to PMC
