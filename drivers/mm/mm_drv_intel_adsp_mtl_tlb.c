@@ -51,13 +51,13 @@ DEVICE_MMIO_TOPLEVEL_STATIC(tlb_regs, DT_DRV_INST(0));
  * Number of significant bits in the page index (defines the size of
  * the table)
  */
-#define TLB_PADDR_SIZE DT_INST_PROP(0, paddr_size)
-#define TLB_EXEC_BIT   BIT(DT_INST_PROP(0, exec_bit_idx))
-#define TLB_WRITE_BIT  BIT(DT_INST_PROP(0, write_bit_idx))
+#define TLB_PADDR_SIZE				DT_INST_PROP(0, paddr_size)
+#define TLB_EXEC_BIT				BIT(DT_INST_PROP(0, exec_bit_idx))
+#define TLB_WRITE_BIT				BIT(DT_INST_PROP(0, write_bit_idx))
 
-#define TLB_ENTRY_NUM (1 << TLB_PADDR_SIZE)
-#define TLB_PADDR_MASK ((1 << TLB_PADDR_SIZE) - 1)
-#define TLB_ENABLE_BIT BIT(TLB_PADDR_SIZE)
+#define TLB_ENTRY_NUM				(1 << TLB_PADDR_SIZE)
+#define TLB_PADDR_MASK				((1 << TLB_PADDR_SIZE) - 1)
+#define TLB_ENABLE_BIT				BIT(TLB_PADDR_SIZE)
 
 /* This is used to translate from TLB entry back to physical address. */
 #define TLB_PHYS_BASE  \
@@ -66,10 +66,10 @@ DEVICE_MMIO_TOPLEVEL_STATIC(tlb_regs, DT_DRV_INST(0));
 	((ROUND_DOWN((hpsram_ebb_quantity) + 31u, 32u) / 32u) - 1u)
 
 #define L2_SRAM_PAGES_NUM			(L2_SRAM_SIZE / CONFIG_MM_DRV_PAGE_SIZE)
-#define MAX_EBB_BANKS_IN_SEGMENT	32
-#define SRAM_BANK_SIZE				(128 * 1024)
+#define MAX_EBB_BANKS_IN_SEGMENT		32
+#define SRAM_BANK_SIZE				KB(128)
 #define L2_SRAM_BANK_NUM			(L2_SRAM_SIZE / SRAM_BANK_SIZE)
-#define IS_BIT_SET(value, idx)		((value) & (1 << (idx)))
+#define IS_BIT_SET(value, idx)			((value) & (1 << (idx)))
 
 static struct k_spinlock tlb_lock;
 extern struct k_spinlock sys_mm_drv_common_lock;
