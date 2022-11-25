@@ -38,6 +38,10 @@
 #include <zephyr/drivers/mm/mm_drv_intel_adsp_mtl_tlb.h>
 #include "mm_drv_common.h"
 
+#define LOG_LEVEL CONFIG_DMA_LOG_LEVEL
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(intel_adsp_mtl_tlb);
+
 DEVICE_MMIO_TOPLEVEL_STATIC(tlb_regs, DT_DRV_INST(0));
 
 /* base address of TLB table */
@@ -222,7 +226,9 @@ static void sys_mm_drv_report_page_usage()
 	uint32_t banks = ceiling_fraction(used_pages, KB(32) / CONFIG_MM_DRV_PAGE_SIZE);
 
 	if (used_banks_reported != banks) {
+		LOG_INF("%s: banks %d", __func__, banks);
 		if (!adsp_comm_widget_pmc_send_ipc(banks)) {
+			LOG_INF("%s: banks ok", __func__);
 			/* Store reported value if message was sent successfully. */
 			used_banks_reported = banks;
 		}
