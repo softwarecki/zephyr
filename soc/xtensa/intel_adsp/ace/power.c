@@ -156,7 +156,7 @@ void power_gate_exit(void)
 	_restore_core_context();
 }
 
-void ALWAYS_INLINE power_off_exit(void)
+static void ALWAYS_INLINE power_off_exit(void)
 {
 	__asm__(
 		"  movi  a0, 0\n\t"
@@ -234,7 +234,8 @@ __weak void pm_state_set(enum pm_state state, uint8_t substate_id)
 			_save_core_context(cpu);
 
 			/* save LPSRAM - a simple copy */
-			memcpy(global_imr_ram_storage, LP_SRAM_BASE, LP_SRAM_SIZE);
+			memcpy(global_imr_ram_storage, (const void *ZRESTRICT)LP_SRAM_BASE,
+			       LP_SRAM_SIZE);
 
 			/* save HPSRAM - a multi step procedure, executed by a TLB driver
 			 * the TLB driver will change memory mapping
