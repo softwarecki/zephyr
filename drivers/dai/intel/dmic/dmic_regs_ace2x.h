@@ -165,5 +165,6 @@
  * with the STRM field indicating the offset z; and the CHAN field will indicate which channel of
  * the sample block the FIFO port should start producing. */
 #define DMICXPCMSyCM_OFFSET	0x16
+#define DMICXPCMSyCM_SIZE	0x02
 
 #endif /* !__INTEL_DAI_DRIVER_DMIC_REGS_ACE2X_H__ */
