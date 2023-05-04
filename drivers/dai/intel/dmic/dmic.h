@@ -133,56 +133,6 @@
 #define DMA_HANDSHAKE_DMIC_CH0	0
 #define DMA_HANDSHAKE_DMIC_CH1	1
 
-/* For NHLT DMIC configuration parsing */
-#define DMIC_HW_CONTROLLERS_MAX	4
-#define DMIC_HW_FIFOS_MAX	2
-
-struct nhlt_dmic_gateway_attributes {
-	uint32_t dw;
-};
-
-struct nhlt_dmic_ts_group {
-	uint32_t ts_group[4];
-};
-
-struct nhlt_dmic_clock_on_delay {
-	uint32_t clock_on_delay;
-};
-
-struct nhlt_dmic_channel_ctrl_mask {
-	uint8_t channel_ctrl_mask;
-	uint8_t clock_source;
-	uint16_t rsvd;
-};
-
-struct nhlt_pdm_ctrl_mask {
-	uint32_t pdm_ctrl_mask;
-};
-
-struct nhlt_pdm_ctrl_cfg {
-	uint32_t cic_control;
-	uint32_t cic_config;
-	uint32_t reserved0;
-	uint32_t mic_control;
-	uint32_t pdm_sdw_map;
-	uint32_t reuse_fir_from_pdm;
-	uint32_t reserved1[2];
-};
-
-struct nhlt_pdm_ctrl_fir_cfg {
-	uint32_t fir_control;
-	uint32_t fir_config;
-	int32_t dc_offset_left;
-	int32_t dc_offset_right;
-	int32_t out_gain_left;
-	int32_t out_gain_right;
-	uint32_t reserved[2];
-};
-
-struct nhlt_pdm_fir_coeffs {
-	int32_t fir_coeffs[0];
-};
-
 enum dai_dmic_frame_format {
 	DAI_DMIC_FRAME_S16_LE = 0,
 	DAI_DMIC_FRAME_S24_4LE,
@@ -206,9 +156,41 @@ struct dai_dmic_plat_fifo_data {
 	uint32_t handshake;
 };
 
+#include "dmic_nhlt.h"
+
+struct pdm_config {
+	uint8_t dmic_control;
+	/*
+	CIC_MONO =
+	0, *! Will configure CIC filter to work on one pair of dmic sets
+	- lower quality. *
+	CIC_STEREO =
+	1 *! Will configure CIC filter to work only on two pairs of dmic
+	sets - higher quailty.. */
+	//bool cic_config;
+	/*
+	FIR_MONO   = 0, *! Will configure FIR filter to work only on one dmic
+	- lower quality. *
+	FIR_STEREO = 1  *! Will configure FIR filter to work only on two dmic
+	- higher quailty. */
+	bool fir_0_stereo;
+	bool fir_1_stereo;
+};
+
+struct dmic_config {
+	bool ignore_ctrls_enable[DMIC_HW_FIFOS_MAX];
+	int pdm_ctrl_routed_to_ch_cfg[DMIC_HW_FIFOS_MAX];
+	uint32_t mics_mask[DMIC_HW_FIFOS_MAX];
+	struct pdm_config pdm[DMIC_HW_FIFOS_MAX];
+
+	bool array_enabled;
+	bool sync_enabled;
+};
+
 
 struct dai_intel_dmic {
 	struct dai_config dai_config_params;
+	struct dmic_config dai_conf;
 
 	struct k_spinlock lock;				/**< locking mechanism */
 	int sref;					/**< simple ref counter, guarded by lock */

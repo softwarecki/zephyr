@@ -124,6 +124,32 @@
 
 /* Global registers */
 
+
+/* Common FIFO channels register (primary & secondary) (0000 - 0FFF)
+ * PDM Primary Channel */
+
+/* Control registers for packers */
+#define OUTCONTROL		0x0000
+
+/* Status Register for FIFO interface */
+#define OUTSTAT			0x0004
+
+/* Data read/Write port for FIFO */
+#define OUTDATA			0x0008
+
+/* (crossed out)	000Ch		LOCAL_OFFS		Offset Counter
+ * (crossed out)	0010h		LOCAL_TSC0		64-bit Wall Clock timestamp
+ * (crossed out)	0018h		LOCAL_SAMPLE0		64-bit Sample Count
+ *			001Ch - 00FFh				Reserved space for extensions */
+
+#define PDM_CHANNEL_REGS_SIZE	0x100
+
+
+
+
+
+
+
 /* Common FIFO channels register (primary & secondary) (0000 - 0FFF)
  * PDM Primary Channel */
 
@@ -179,7 +205,19 @@
 #define PDM_COEF_RAM_A_LENGTH	0x0400
 #define PDM_COEF_RAM_B_LENGTH	0x0400
 
+
+
+
+
+
+
+
+
+
 /* Local registers in each PDMx */
+#define PDM_CONTROLLER_BASE		0x1000
+#define PDM_CONTROLLER_REGS_SIZE	0x1000
+
 
 /* Control register for CIC configuration and decimator setting */
 #define CIC_CONTROL		0x000
@@ -189,6 +227,8 @@
 
 /* Microphone interface control register */
 #define MIC_CONTROL		0x00c
+
+/* FIR config */
 
 /* Control for the FIR decimator (channel A) */
 #define FIR_CONTROL_A		0x020
@@ -226,21 +266,24 @@
 /* Gain for right channel */
 #define OUT_GAIN_RIGHT_B	0x054
 
+#define PDM_COEFFICIENT_A	0x400
+#define PDM_COEFFICIENT_B	0x800
+
 
 /* Digital Mic Shim Registers */
 
 /* Digital Microphone Link Control
-*
-* This register controls the direct attached digital microphone interface.
-* Note: The number of DMIC stereo port implementation is wrapped inside a single DMIC IP. Therefore
-* only a single SPA and CPA bit even through parameter DMICPC may be > 1.
-*/
+ *
+ * This register controls the direct attached digital microphone interface.
+ * Note: The number of DMIC stereo port implementation is wrapped inside a single DMIC IP. Therefore
+ * only a single SPA and CPA bit even through parameter DMICPC may be > 1.
+ */
 #define DMICLCTL		0x04
 
 /* Digital Microphone IP Pointer
-*
-* This register provides the pointer to the direct attached digital microphone IP registers.
-*/
+ *
+ * This register provides the pointer to the direct attached digital microphone IP registers.
+ */
 #define DMICIPPTR		0x08
 
 

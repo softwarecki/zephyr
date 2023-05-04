@@ -177,9 +177,12 @@ static inline void dai_dmic_set_sync_period(uint32_t period, const struct dai_in
 		    base + DMICSYNC_OFFSET);
 	sys_write32(sys_read32(base + DMICSYNC_OFFSET) | DMICSYNC_SYNCPU,
 		    base + DMICSYNC_OFFSET);
-	while (sys_read32(base + DMICSYNC_OFFSET) & DMICSYNC_SYNCPU) {
-		k_sleep(K_USEC(100));
+
+	if (!WAIT_FOR((sys_read32(base + DMICSYNC_OFFSET) & DMICSYNC_SYNCPU) == 0,
+		      1000, k_sleep(K_USEC(100)))) {
+		LOG_ERR("dai_dmic_set_sync_period(): poll timeout");
 	}
+
 	sys_write32(sys_read32(base + DMICSYNC_OFFSET) | DMICSYNC_CMDSYNC,
 		    base + DMICSYNC_OFFSET);
 #else /* All other CAVS and ACE platforms */
@@ -218,9 +221,11 @@ static void dmic_sync_trigger(const struct dai_intel_dmic *dmic)
 
 	sys_write32(sys_read32(base + DMICSYNC_OFFSET) |
 		    DMICSYNC_SYNCGO, base + DMICSYNC_OFFSET);
+
 	/* waiting for CMDSYNC bit clearing */
-	while (sys_read32(base + DMICSYNC_OFFSET) & DMICSYNC_CMDSYNC) {
-		k_sleep(K_USEC(100));
+	if (!WAIT_FOR((sys_read32(base + DMICSYNC_OFFSET) & DMICSYNC_CMDSYNC) == 0,
+		      1000, k_sleep(K_USEC(100)))) {
+		LOG_ERR("dmic_sync_trigger(): poll timeout");
 	}
 }
 
@@ -233,22 +238,21 @@ static void dmic_sync_trigger(const struct dai_intel_dmic *dmic) {}
 
 #endif /* CONFIG_DAI_DMIC_HAS_MULTIPLE_LINE_SYNC */
 
+static void dai_dmic_start_fifo_packers(struct dai_intel_dmic *dmic, int fifo_index)
+{
+	/* Start FIFO packers and clear FIFO initialize bits */
+	dai_dmic_update_bits(dmic, PDM_CHANNEL_REGS_SIZE * fifo_index + OUTCONTROL,
+			     OUTCONTROL_SIP | OUTCONTROL_FINIT,
+			     OUTCONTROL_SIP);
+}
+
 static void dai_dmic_stop_fifo_packers(struct dai_intel_dmic *dmic,
-					int fifo_index)
+				       int fifo_index)
 {
 	/* Stop FIFO packers and set FIFO initialize bits */
-	switch (fifo_index) {
-	case 0:
-		dai_dmic_update_bits(dmic, OUTCONTROL0,
-				OUTCONTROL_SIP | OUTCONTROL_FINIT,
-				OUTCONTROL_FINIT);
-		break;
-	case 1:
-		dai_dmic_update_bits(dmic, OUTCONTROL1,
-				OUTCONTROL_SIP | OUTCONTROL_FINIT,
-				OUTCONTROL_FINIT);
-		break;
-	}
+	dai_dmic_update_bits(dmic, PDM_CHANNEL_REGS_SIZE * fifo_index + OUTCONTROL,
+			     OUTCONTROL_SIP | OUTCONTROL_FINIT,
+			     OUTCONTROL_FINIT);
 }
 
 /* On DMIC IRQ event trace the status register that contains the status and
@@ -548,11 +552,13 @@ static void dai_dmic_gain_ramp(struct dai_intel_dmic *dmic)
 static void dai_dmic_start(struct dai_intel_dmic *dmic)
 {
 	k_spinlock_key_t key;
-	int i;
+	const int dai_index = dmic->dai_config_params.dai_index;
+	int pdm_idx;
 	int mic_a;
 	int mic_b;
 	int fir_a;
 	int fir_b;
+	uint32_t val;
 
 	/* enable port */
 	key = k_spin_lock(&dmic->lock);
@@ -565,44 +571,31 @@ static void dai_dmic_start(struct dai_intel_dmic *dmic)
 	/* Initial gain value, convert Q12.20 to Q2.30 */
 	dmic->gain = Q_SHIFT_LEFT(db2lin_fixed(LOGRAMP_START_DB), 20, 30);
 
-	dai_dmic_sync_prepare(dmic);
 
-	switch (dmic->dai_config_params.dai_index) {
-	case 0:
-		LOG_INF("dmic_start(), dmic->fifo_a");
-		/*  Clear FIFO A initialize, Enable interrupts to DSP,
-		 *  Start FIFO A packer.
-		 */
-		dai_dmic_update_bits(
-				dmic,
-				OUTCONTROL0,
-				OUTCONTROL_FINIT | OUTCONTROL_SIP,
-				OUTCONTROL_SIP);
-		break;
-	case 1:
-		LOG_INF("dmic_start(), dmic->fifo_b");
-		/*  Clear FIFO B initialize, Enable interrupts to DSP,
-		 *  Start FIFO B packer.
-		 */
-		dai_dmic_update_bits(dmic, OUTCONTROL1,
-				     OUTCONTROL_FINIT | OUTCONTROL_SIP,
-				     OUTCONTROL_SIP);
+	dmic->dai_conf.sync_enabled = true;
+	if (dmic->dai_conf.sync_enabled) {
+		dai_dmic_sync_prepare(dmic);
 	}
 
-	for (i = 0; i < CONFIG_DAI_DMIC_HW_CONTROLLERS; i++) {
+	LOG_INF("dmic_start(), dmic->fifo %u", dai_index);
+	dai_dmic_start_fifo_packers(dmic, dai_index);
+
+#define OLD_CODE
+#ifdef OLD_CODE
+	for (pdm_idx = 0; pdm_idx < CONFIG_DAI_DMIC_HW_CONTROLLERS; pdm_idx++) {
 #ifdef CONFIG_SOC_SERIES_INTEL_ACE
-		dai_dmic_update_bits(dmic, base[i] + CIC_CONTROL,
+		dai_dmic_update_bits(dmic, base[pdm_idx] + CIC_CONTROL,
 				     CIC_CONTROL_SOFT_RESET, 0);
 
 		LOG_INF("dmic_start(), cic 0x%08x",
-			dai_dmic_read(dmic, base[i] + CIC_CONTROL));
+			dai_dmic_read(dmic, base[pdm_idx] + CIC_CONTROL));
 #endif
 
-		mic_a = dmic->enable[i] & 1;
-		mic_b = (dmic->enable[i] & 2) >> 1;
-		fir_a = (dmic->enable[i] > 0) ? 1 : 0;
-		fir_b = (dmic->enable[i] > 0) ? 1 : 0;
-		LOG_INF("dmic_start(), pdm%d mic_a = %u, mic_b = %u", i, mic_a, mic_b);
+		mic_a = dmic->enable[pdm_idx] & 1;
+		mic_b = (dmic->enable[pdm_idx] & 2) >> 1;
+		fir_a = (dmic->enable[pdm_idx] > 0) ? 1 : 0;
+		fir_b = (dmic->enable[pdm_idx] > 0) ? 1 : 0;
+		LOG_INF("dmic_start(), pdm%d mic_a = %u, mic_b = %u", pdm_idx, mic_a, mic_b);
 
 		/* If both microphones are needed start them simultaneously
 		 * to start them in sync. The reset may be cleared for another
@@ -610,45 +603,103 @@ static void dai_dmic_start(struct dai_intel_dmic *dmic)
 		 * This makes sure we do not clear start/en for another DAI.
 		 */
 		if (mic_a && mic_b) {
-			dai_dmic_update_bits(dmic, base[i] + CIC_CONTROL,
+			dai_dmic_update_bits(dmic, base[pdm_idx] + CIC_CONTROL,
 					     CIC_CONTROL_CIC_START_A |
 					     CIC_CONTROL_CIC_START_B,
 					     FIELD_PREP(CIC_CONTROL_CIC_START_A, 1) |
 					     FIELD_PREP(CIC_CONTROL_CIC_START_B, 1));
-			dai_dmic_update_bits(dmic, base[i] + MIC_CONTROL,
+			dai_dmic_update_bits(dmic, base[pdm_idx] + MIC_CONTROL,
 					     MIC_CONTROL_PDM_EN_A |
 					     MIC_CONTROL_PDM_EN_B,
 					     FIELD_PREP(MIC_CONTROL_PDM_EN_A, 1) |
 					     FIELD_PREP(MIC_CONTROL_PDM_EN_B, 1));
 		} else if (mic_a) {
-			dai_dmic_update_bits(dmic, base[i] + CIC_CONTROL,
+			dai_dmic_update_bits(dmic, base[pdm_idx] + CIC_CONTROL,
 					     CIC_CONTROL_CIC_START_A,
 					     FIELD_PREP(CIC_CONTROL_CIC_START_A, 1));
-			dai_dmic_update_bits(dmic, base[i] + MIC_CONTROL,
+
+			dai_dmic_update_bits(dmic, base[pdm_idx] + MIC_CONTROL,
 					     MIC_CONTROL_PDM_EN_A,
 					     FIELD_PREP(MIC_CONTROL_PDM_EN_A, 1));
 		} else if (mic_b) {
-			dai_dmic_update_bits(dmic, base[i] + CIC_CONTROL,
+			dai_dmic_update_bits(dmic, base[pdm_idx] + CIC_CONTROL,
 					     CIC_CONTROL_CIC_START_B,
 					     FIELD_PREP(CIC_CONTROL_CIC_START_B, 1));
-			dai_dmic_update_bits(dmic, base[i] + MIC_CONTROL,
+			dai_dmic_update_bits(dmic, base[pdm_idx] + MIC_CONTROL,
 					     MIC_CONTROL_PDM_EN_B,
 					     FIELD_PREP(MIC_CONTROL_PDM_EN_B, 1));
 		}
 
-		switch (dmic->dai_config_params.dai_index) {
+
+
+
+
+		switch (dai_index) {
 		case 0:
-			dai_dmic_update_bits(dmic, base[i] + FIR_CONTROL_A,
+			dai_dmic_update_bits(dmic, base[pdm_idx] + FIR_CONTROL_A,
 					     FIR_CONTROL_START,
 					     FIELD_PREP(FIR_CONTROL_START, fir_a));
 			break;
 		case 1:
-			dai_dmic_update_bits(dmic, base[i] + FIR_CONTROL_B,
+			dai_dmic_update_bits(dmic, base[pdm_idx] + FIR_CONTROL_B,
 					     FIR_CONTROL_START,
 					     FIELD_PREP(FIR_CONTROL_START, fir_b));
 			break;
 		}
 	}
+#else
+
+	for (pdm_idx = 0; pdm_idx < CONFIG_DAI_DMIC_HW_CONTROLLERS; ++pdm_idx) {
+		if ((dmic->dai_conf.pdm_ctrl_routed_to_ch_cfg[dai_index] & BIT(pdm_idx)) == 0)
+			continue;
+
+
+		/* Enable microphone clocks */
+		uint32_t mics_mask = dmic->dai_conf.mics_mask[dai_index] >> (2 * pdm_idx);
+			
+		dai_dmic_update_bits(dmic, base[pdm_idx] + MIC_CONTROL,
+					MIC_CONTROL_PDM_EN_A | MIC_CONTROL_PDM_EN_B,
+					FIELD_PREP(MIC_CONTROL_PDM_EN_A, (mics_mask >> 0) & 1) |
+					FIELD_PREP(MIC_CONTROL_PDM_EN_B, (mics_mask >> 1) & 1));
+
+
+		if (dmic->dai_conf.ignore_ctrls_enable[dai_index] & BIT(pdm_idx))
+			continue;
+
+
+		/* Enable FIRs
+			* When array start enable bit is set for slave interface then
+			* slave interface needs to be enabled only on master interface. */
+		if (dmic->dai_conf.array_enabled) {
+			dai_dmic_update_bits(dmic, base[pdm_idx] + FIR_CONTROL_A,
+						FIR_CONTROL_START,
+						FIR_CONTROL_START);
+			if (CONFIG_DAI_DMIC_HW_CONTROLLERS > 2) {
+				dai_dmic_update_bits(dmic, base[pdm_idx] + FIR_CONTROL_B,
+							FIR_CONTROL_START,
+							FIR_CONTROL_START);
+			}
+		} else {
+			dai_dmic_update_bits(dmic, base[pdm_idx] +
+						dai_index ? FIR_CONTROL_B : FIR_CONTROL_A,
+						FIR_CONTROL_START,
+						FIR_CONTROL_START);
+		}
+
+		/* Enable CIC */
+		val = dai_dmic_read(dmic, base[pdm_idx] + CIC_CONTROL);
+		val |= CIC_CONTROL_CIC_START_A;
+
+		/* stereo setting is based on fir config */
+		if (dai_index ? dmic->dai_conf.pdm[pdm_idx].fir_1_stereo :
+		    dmic->dai_conf.pdm[pdm_idx].fir_0_stereo)
+		{
+			val |= CIC_CONTROL_CIC_START_B;
+		}
+
+		dai_dmic_write(dmic, base[pdm_idx] + CIC_CONTROL, val);
+	}
+#endif
 
 #ifndef CONFIG_SOC_SERIES_INTEL_ACE
 	/* Clear soft reset for all/used PDM controllers. This should
@@ -670,11 +721,30 @@ static void dai_dmic_start(struct dai_intel_dmic *dmic)
 	dmic->state = DAI_STATE_RUNNING;
 	k_spin_unlock(&dmic->lock, key);
 
-	dmic_sync_trigger(dmic);
+	if (dmic->dai_conf.sync_enabled) {
+		dmic_sync_trigger(dmic);
+	}
 
 	LOG_INF("dmic_start(), dmic_active_fifos_mask = 0x%x",
 		dai_dmic_global.active_fifos_mask);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 static void dai_dmic_stop(struct dai_intel_dmic *dmic, bool stop_is_pause)
 {

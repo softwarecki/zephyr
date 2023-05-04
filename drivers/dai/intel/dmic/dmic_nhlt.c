@@ -13,8 +13,10 @@
 LOG_MODULE_REGISTER(LOG_DOMAIN);
 
 #include <zephyr/drivers/dai.h>
+#include <zephyr/sys/util.h>
 #include <adsp_clk.h>
 #include "dmic.h"
+#include "dmic_nhlt.h"
 #include "dmic_regs.h"
 
 extern struct dai_dmic_global_shared dai_dmic_global;
@@ -30,6 +32,11 @@ static inline void dai_dmic_write(const struct dai_intel_dmic *dmic,
 				  uint32_t reg, uint32_t val)
 {
 	sys_write32(val, dmic->reg_base + reg);
+}
+
+static inline uint32_t dai_dmic_read(const struct dai_intel_dmic *dmic, uint32_t reg)
+{
+	return sys_read32(dmic->reg_base + reg);
 }
 
 #ifdef CONFIG_SOC_SERIES_INTEL_ACE
@@ -189,6 +196,153 @@ static int dai_dmic_set_clock(const struct dai_intel_dmic *dmic, const uint8_t c
 	dai_dmic_clock_select_set(dmic, clock_source);
 	return 0;
 }
+
+static inline void dai_dmic_pdm_config_clear(const struct dai_intel_dmic *dmic,
+					     const uint32_t pdm_base)
+{
+	const uint32_t regs_to_clear[] = { CIC_CONFIG, MIC_CONTROL,
+		FIR_CONTROL_A, FIR_CONFIG_A, DC_OFFSET_LEFT_A, DC_OFFSET_RIGHT_A, OUT_GAIN_LEFT_A,
+		OUT_GAIN_RIGHT_A,
+		FIR_CONTROL_B, FIR_CONFIG_B, DC_OFFSET_LEFT_B, DC_OFFSET_RIGHT_B, OUT_GAIN_LEFT_B,
+		OUT_GAIN_RIGHT_B
+	};
+
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(regs_to_clear); i++) {
+		dai_dmic_write(dmic, pdm_base + regs_to_clear[i], 0);
+	}
+
+	/* clear soft_reset, mute mic by default */
+	dai_dmic_write(dmic, pdm_base + CIC_CONTROL, CIC_CONTROL_MIC_MUTE);
+}
+
+static inline void dai_dmic_pdm_config_copy(const struct dai_intel_dmic *dmic,
+					    const uint32_t pdm_base, const uint32_t *config)
+{
+	const uint32_t regs_to_copy[] = { CIC_CONFIG,
+		FIR_CONTROL_A, FIR_CONFIG_A, DC_OFFSET_LEFT_A, DC_OFFSET_RIGHT_A, OUT_GAIN_LEFT_A,
+		OUT_GAIN_RIGHT_A,
+		FIR_CONTROL_B, FIR_CONFIG_B, DC_OFFSET_LEFT_B, DC_OFFSET_RIGHT_B, OUT_GAIN_LEFT_B,
+		OUT_GAIN_RIGHT_B
+	};
+
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(regs_to_copy); i++) {
+		dai_dmic_write(dmic, pdm_base + regs_to_copy[i], config[i]);
+	}
+}
+
+/*
+* Return decimator's mask where:
+1st decimator is ipm_source_1, 2nd ipm_source_2, etc.
+* And set appriopriate bit for each decimator:
+* bit 0x1 - decimator 0
+* bit 0x2 - decimator 1
+* bit 0x4 - decimator 2
+* bit 0x8 - decimator 3
+*/
+static uint32_t get_decimator_source_mask(uint32_t outcontrol)
+{
+	uint32_t ipm;
+	uint32_t decimator_mask = 0;
+
+	ipm = FIELD_GET(OUTCONTROL_IPM, outcontrol);
+
+	/* only 1 - 4 number of decimators is allowed */
+	if (ipm > 0 && ipm <= 4) {
+		switch (ipm) {
+		case 4:
+			decimator_mask |= 1 << FIELD_GET(OUTCONTROL_IPM_SOURCE_4, outcontrol);
+			/* fallback */
+		case 3:
+			decimator_mask |= 1 << FIELD_GET(OUTCONTROL_IPM_SOURCE_3, outcontrol);
+			/* fallback */
+		case 2:
+			decimator_mask |= 1 << FIELD_GET(OUTCONTROL_IPM_SOURCE_2, outcontrol);
+			/* fallback */
+		case 1:
+			decimator_mask |= 1 << FIELD_GET(OUTCONTROL_IPM_SOURCE_1, outcontrol);
+		}
+	}
+
+	return decimator_mask;
+}
+
+/* Returns pointer right after coefficients data */
+static const uint32_t *dai_dmic_configure_coeff(const struct dai_intel_dmic *dmic,
+						const uint32_t pdm_base,
+						const uint32_t *coeffs_in_dw)
+{
+	const uint8_t *coeffs_in_bytes;
+	int i, length_0, length_1;
+	uint32_t coeff_out;
+	uint32_t coeff_val;
+
+	/* Read fir_lengths */
+	length_0 = FIELD_GET(FIR_CONFIG_FIR_LENGTH, dai_dmic_read(dmic, pdm_base + FIR_CONFIG_A));
+	if (length_0) {
+		/* fir length in reg is n-1, hence ++ */
+		length_0++;
+	}
+
+	length_1 = FIELD_GET(FIR_CONFIG_FIR_LENGTH, dai_dmic_read(dmic, pdm_base + FIR_CONFIG_B));
+	if (length_1) {
+		/* fir length in reg is n-1, hence ++ */
+		length_1++;
+	}
+
+	if (length_0 > 256 || length_1 > 256) {
+		LOG_ERR("dai_dmic_configure_coeff(): invalid coeff length! %d %d", length_0,
+			length_1);
+		return NULL;
+	}
+
+	if (*coeffs_in_dw != FIR_COEFFS_PACKED_TO_24_BITS) {
+		coeff_out = pdm_base + PDM_COEFFICIENT_A;
+		for (i = 0; i < length_0; i++, coeff_out += 4) {
+			dai_dmic_write(dmic, coeff_out, *coeffs_in_dw++);
+		}
+
+		coeff_out = pdm_base + PDM_COEFFICIENT_B;
+		for (i = 0; i < length_1; i++, coeff_out += 4) {
+			dai_dmic_write(dmic, coeff_out, *coeffs_in_dw++);
+		}
+
+		return coeffs_in_dw;
+	} else {
+		/* First dword is not included into length_0 and length_1 - skip it. */
+		coeffs_in_dw++;
+		
+		const uint8_t *coeffs_in_bytes = (const uint8_t *)coeffs_in_dw;
+
+		coeff_out = pdm_base + PDM_COEFFICIENT_A;
+		for (i = 0; i < length_0; i++, coeff_out += 4) {
+			coeff_val = coeffs_in_bytes[0] +
+				(coeffs_in_bytes[1] << 8) +
+				(coeffs_in_bytes[2] << 16);
+			coeffs_in_bytes += 3;
+
+			dai_dmic_write(dmic, coeff_out, coeff_val);
+		}
+
+		coeff_out = pdm_base + PDM_COEFFICIENT_B;
+		for (i = 0; i < length_1; i++, coeff_out += 4) {
+			coeff_val = coeffs_in_bytes[0] +
+				(coeffs_in_bytes[1] << 8) +
+				(coeffs_in_bytes[2] << 16);
+			coeffs_in_bytes += 3;
+
+			dai_dmic_write(dmic, coeff_out, coeff_val);
+		}
+
+		return UINT_TO_POINTER(ROUND_UP(POINTER_TO_UINT(coeffs_in_bytes),
+						sizeof(uint32_t)));
+	}
+}
+
+
 #else
 static int dai_nhlt_dmic_dai_params_get(struct dai_intel_dmic *dmic,
 					int32_t *outcontrol,
@@ -275,6 +429,212 @@ static inline int dai_dmic_set_clock(uint8_t clock_source)
 }
 #endif
 
+
+
+
+int dai_dmic_set_config_nhlt_new(struct dai_intel_dmic *dmic, const void *bespoke_cfg)
+{
+	const struct nhlt_dmic_config_blob *cfg = bespoke_cfg;
+	const struct nhlt_dmic_channel_config *channel_cfg = cfg->channel_config;
+	const struct nhlt_pdm_ctrl_mask *pdm_ctrl;
+	const struct nhlt_pdm_ctrl_cfg *pdm_cfg;
+
+	int channel_idx, pdm_idx;
+	uint8_t channel_ctrl_mask;
+	uint32_t pdm_ctrl_mask;
+	uint32_t base, val;
+	uint32_t pdm_a_mask;
+	uint32_t pdm_b_mask;
+	int ret;
+
+	const uint32_t *fir_coeffs;
+
+	/* Array of pointers to pdm coefficient data. Used to reuse coefficient from another pdm. */
+	const uint32_t *pdm_coeff_ptr[CONFIG_DAI_DMIC_HW_CONTROLLERS] = { 0 };
+
+
+
+	if (dmic->dai_config_params.dai_index >= DMIC_HW_FIFOS_MAX) {
+		LOG_ERR("dmic_set_config_nhlt(): illegal DAI index %d",
+			dmic->dai_config_params.dai_index);
+		return -EINVAL;
+	}
+
+	/* Channel_ctlr_mask bits indicate the FIFOs enabled */
+	channel_ctrl_mask = cfg->ctrl_mask.channel_ctrl_mask;
+
+	if (!channel_ctrl_mask || channel_ctrl_mask & ~BIT_MASK(DMIC_HW_FIFOS_MAX)) {
+		LOG_ERR("dmic_set_config_nhlt(): invalid channel_ctrl_mask %u", channel_ctrl_mask);
+		return -EINVAL;
+	}
+
+	LOG_DBG("dmic_set_config_nhlt(): channel_ctrl_mask = %u, number of FIFOs %d",
+		channel_ctrl_mask, POPCOUNT(channel_ctrl_mask));
+
+	// TODO: Check capabilities
+
+	/* Configure clock source */
+	ret = dai_dmic_set_clock(dmic, cfg->ctrl_mask.clock_source);
+	if (ret)
+		return ret;
+
+	/* Get OUTCONTROLx configuration */
+	for (channel_idx = 0; channel_idx < DMIC_HW_FIFOS_MAX; channel_idx++) {
+		dmic->dai_conf.ignore_ctrls_enable[channel_idx] = false;
+
+		// TODO: TO chyba powinno byc przed continue?
+		/* clear value pdm_ctrl_routed_to_ch_cfg for channel_id. This field will be updated
+		 * in this loop (pdm_controller_routed) and later during updating
+		 * PdmController registers */
+		dmic->dai_conf.pdm_ctrl_routed_to_ch_cfg[channel_idx] = 0;
+
+		if ((channel_ctrl_mask & BIT(channel_idx)) == 0) {
+			continue;
+		}
+
+		/* store outctrl register without any ingerention */
+		dai_dmic_write(dmic, PDM_CHANNEL_REGS_SIZE * channel_idx + OUTCONTROL,
+			       channel_cfg->out_control);
+
+		/* ipm means number of decimators used for each channel and ipm_source_index'es
+		 * specify which exact pdm's are used */
+		dmic->dai_conf.pdm_ctrl_routed_to_ch_cfg[channel_idx] =
+			get_decimator_source_mask(channel_cfg->out_control);
+
+
+
+
+		// TODO: To było w pętli pdm, ale to chyba bez sensu?
+		// SOF ma to fajnie wydzielone do funkcji
+		// Jeśli to jest faktycznie uzywane, wydziel to do funckji
+		val = channel_cfg->out_control;
+
+		if (FIELD_GET(OUTCONTROL_IPM, val) == 1)
+		{
+			if ((val & OUTCONTROL_IPM_SOURCE_MODE) == 0) {
+				/* 1 decimator and mono = mono */
+				// TODO: SOF tutaj jeszcze wybieral który mikrofon jest uzywany w trybie mono
+				dmic->dai_conf.mics_mask[channel_idx] = 0x1 << (channel_idx * 2);
+			} else {
+				/* 1 decimator and stereo = stereo */
+				dmic->dai_conf.mics_mask[channel_idx] = 0x3 << (channel_idx * 2);
+			}
+		}
+		else if (FIELD_GET(OUTCONTROL_IPM, val) == 2)
+		{
+			/* 2 decimators and stereo = quadro */
+			if (val & OUTCONTROL_IPM_SOURCE_MODE) {
+				dmic->dai_conf.mics_mask[channel_idx] = 0xFF;
+			}
+		}
+
+
+
+
+		channel_cfg++;
+	}
+
+	/* pdm_ctrl_mask is placed right after channels config. */
+	pdm_ctrl = (const struct nhlt_pdm_ctrl_mask *)channel_cfg;
+	pdm_ctrl_mask = pdm_ctrl->pdm_ctrl_mask;
+
+	if (!pdm_ctrl_mask || pdm_ctrl_mask & ~BIT_MASK(CONFIG_DAI_DMIC_HW_CONTROLLERS)) {
+		LOG_ERR("dmic_set_config_nhlt(): invalid pdm_ctrl_mask %u", pdm_ctrl_mask);
+		return -EINVAL;
+	}
+
+	LOG_DBG("dmic_set_config_nhlt(): pdm_ctrl_mask = %d, number of PDMs %d",
+		pdm_ctrl_mask, POPCOUNT(pdm_ctrl_mask));
+
+	/* increment pos_in_struct(located right after pdm_ctrl_mask) */
+	pdm_cfg = (const struct nhlt_pdm_ctrl_cfg *)(pdm_ctrl + 1);
+
+
+	dmic->dai_conf.array_enabled = false;
+	dmic->dai_conf.sync_enabled  = false;
+	for (pdm_idx = 0; pdm_idx < CONFIG_DAI_DMIC_HW_CONTROLLERS; pdm_idx++) {
+		base = PDM_CONTROLLER_BASE + pdm_idx * PDM_CONTROLLER_REGS_SIZE;
+
+
+		if ((pdm_ctrl_mask & BIT(pdm_idx)) == 0) {
+			dai_dmic_pdm_config_clear(dmic, base);
+			continue;
+		}
+	
+		// TODO: Tutaj było wypełnianie dmic_control / misc_mask
+
+		/* update pdm_config with fir_hiq information */
+		val = pdm_cfg->fir_config[0].fir_control;
+		dmic->dai_conf.pdm[pdm_idx].fir_0_stereo = !!(val & FIR_CONTROL_STEREO);
+
+		/* update pdm_config with fir_voice information */
+		val = pdm_cfg->fir_config[1].fir_control;
+		dmic->dai_conf.pdm[pdm_idx].fir_1_stereo = !!(val & FIR_CONTROL_STEREO);
+
+		dmic->dai_conf.array_enabled |= !!(val & FIR_CONTROL_ARRAY_START_EN);
+		dmic->dai_conf.sync_enabled |= !!(val & FIR_CONTROL_PERIODIC_START_EN);
+
+		/* Copy configuration to pdm registers. Skips CIC_CONTROL and MIC_CONTROL */
+		dai_dmic_pdm_config_copy(dmic, base, (const uint32_t *)pdm_cfg);
+
+		val = pdm_cfg->mic_control;
+		/* this needs to be cleared to prevent too early PDM enable and should be enabled
+		 * only during dmic_enable */
+		val &= ~(MIC_CONTROL_PDM_EN_B | MIC_CONTROL_PDM_EN_A);
+		dai_dmic_write(dmic, base + MIC_CONTROL, val);
+
+		/* Configure fir coefficients */
+
+		/* Check if FIR coeffs should be reused */
+		if (pdm_cfg->reuse_fir_from_pdm == 0) {
+			/* get ptr, where FIR coeffs starts */
+			fir_coeffs = pdm_cfg->fir_coeffs;
+
+			/* and save it for future pdms reference */
+			pdm_coeff_ptr[pdm_idx] = fir_coeffs;
+		} else {
+			if (pdm_cfg->reuse_fir_from_pdm > pdm_idx) {
+				LOG_ERR("dmic_set_config_nhlt(): invalid reuse fir index %u",
+					pdm_cfg->reuse_fir_from_pdm);
+				return -EINVAL;
+			}
+
+			/* get FIR coeffs from another pdm */
+			fir_coeffs = pdm_coeff_ptr[pdm_cfg->reuse_fir_from_pdm - 1];
+
+			if (!fir_coeffs) {
+				LOG_ERR("dmic_set_config_nhlt(): unable to reuse fir from %u",
+					pdm_cfg->reuse_fir_from_pdm);
+				return -EINVAL;
+			}
+		}
+		
+		fir_coeffs = dai_dmic_configure_coeff(dmic, base, fir_coeffs);
+
+		/* program register with soft_reset */
+		dai_dmic_write(dmic, base + CIC_CONTROL, pdm_cfg->cic_control);
+
+		// TODO: FIX ME!!!!!!!!!!!!
+#if 0// SUPPORTED(ALH) && 0 // PDM soundwire streams is defeatured from ACE
+		DMICxPyPDMSM pdmsm                   = {.full = pdm_ctrl_cfg->pdmsm};
+		dmic_shim->pdmsm[pdm_ctrl_idx].full = pdmsm.full;
+#endif // SUPPORTED(ALH)
+
+		/* Update pdm_cfg ptr for next PDM Ctrl. */
+		if (pdm_cfg->reuse_fir_from_pdm) {
+			/* fir_coeffs array is empty if reusing previous coeffs */
+			pdm_cfg = (const struct nhlt_pdm_ctrl_cfg *)&pdm_cfg->fir_coeffs;
+		} else {
+			pdm_cfg = (const struct nhlt_pdm_ctrl_cfg *)fir_coeffs;
+		}
+	}
+
+	val = dai_dmic_read(dmic, PDM_CONTROLLER_BASE + MIC_CONTROL);
+	val &= ~MIC_CONTROL_SLAVE_MODE;
+	dai_dmic_write(dmic, PDM_CONTROLLER_BASE + MIC_CONTROL, val);
+}
+
+
 int dai_dmic_set_config_nhlt(struct dai_intel_dmic *dmic, const void *bespoke_cfg)
 {
 	struct nhlt_pdm_ctrl_cfg *pdm_cfg[DMIC_HW_CONTROLLERS_MAX];
@@ -321,7 +681,7 @@ int dai_dmic_set_config_nhlt(struct dai_intel_dmic *dmic, const void *bespoke_cf
 	/* Skip not used headers */
 	p += sizeof(struct nhlt_dmic_gateway_attributes);
 	p += sizeof(struct nhlt_dmic_ts_group);
-	p += sizeof(struct nhlt_dmic_clock_on_delay);
+	p += sizeof(struct nhlt_dmic_global_config);
 
 	/* Channel_ctlr_mask bits indicate the FIFOs enabled*/
 	dmic_cfg = (struct nhlt_dmic_channel_ctrl_mask *)p;
