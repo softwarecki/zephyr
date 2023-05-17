@@ -36,6 +36,15 @@ LOG_MODULE_REGISTER(LOG_DOMAIN);
 #define DAI_DIR_CAPTURE 1
 #define SSP_ARRAY_INDEX(dir) dir == DAI_DIR_RX ? DAI_DIR_CAPTURE : DAI_DIR_PLAYBACK
 
+#undef LOG_INF
+#define LOG_INF LOG_ERR
+
+#undef LOG_WRN
+#define LOG_WRN LOG_ERR
+
+#undef LOG_DBG
+#define LOG_DBG LOG_ERR
+
 static void dai_ssp_update_bits(struct dai_intel_ssp *dp, uint32_t reg, uint32_t mask, uint32_t val)
 {
 	uint32_t dest = dai_base(dp) + reg;
