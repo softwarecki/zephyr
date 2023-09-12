@@ -241,7 +241,7 @@ SECTIONS {
     *(.iram0.text)
     KEEP(*(.init))
     KEEP(*(.lps_vector))
-    *(.literal .text .literal.* .text.* .stub .gnu.warning .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal .gnu.linkonce.t.*)
+    EXCLUDE_FILE(*libloadable_library_*.a:) *(.literal .text .literal.* .text.* .stub .gnu.warning .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal .gnu.linkonce.t.*)
     *(.fini.literal)
     KEEP(*(.fini))
     *(.gnu.version)
@@ -251,8 +251,7 @@ SECTIONS {
   .rodata : ALIGN(4096)
   {
     __rodata_region_start = .;
-    *(.rodata)
-    *(.rodata.*)
+    EXCLUDE_FILE(*libloadable_library_*.a:) *(.rodata .rodata.*)
     *(.gnu.linkonce.r.*)
     *(.rodata1)
 
@@ -307,8 +306,7 @@ SECTIONS {
 
   .data SEGSTART_UNCACHED : {
     __data_start = .;
-    *(.data)
-    *(.data.*)
+    EXCLUDE_FILE(*libloadable_library_*.a:) *(.data .data.*)
     *(.gnu.linkonce.d.*)
     KEEP(*(.gnu.linkonce.d.*personality*))
     *(.data1)
@@ -379,8 +377,7 @@ SECTIONS {
     *(.sbss2.*)
     *(.gnu.linkonce.sb2.*)
     *(.dynbss)
-    *(.bss)
-    *(.bss.*)
+    EXCLUDE_FILE(*libloadable_library_*.a:) *(.bss .bss.*)
     *(.gnu.linkonce.b.*)
     *(COMMON)
     . = ALIGN(8);
@@ -449,6 +446,8 @@ SECTIONS {
     KEEP (*(.fw_metadata))
     . = ALIGN(16);
   } >noload
+
+#include <loadable_modules.ld>
 
 #include <snippets-sections.ld>
 

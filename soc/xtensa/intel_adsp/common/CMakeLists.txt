@@ -88,6 +88,7 @@ add_custom_command(
       --remove-section .imrdata
       --remove-section .module.boot
       --remove-section .fw_metadata
+      --remove-section .loadable*
       --set-section-flags .module.main=noload,readonly
       --set-section-flags .static_uuid_entries=noload,readonly
       --set-section-flags .static_log_entries=noload,readonly
@@ -147,3 +148,49 @@ add_custom_command(
   DEPENDS gen_modules
           ${CMAKE_BINARY_DIR}/zephyr/boot.mod ${CMAKE_BINARY_DIR}/zephyr/main.mod
 )
+
+# Loadable modules support
+set(LINKER_GENERATOR "${CMAKE_CURRENT_LIST_DIR}/link_loadable_mods.cmake" CACHE INTERNAL "name")
+
+macro(zephyr_add_loadable lib_list)
+  set(KERNEL_REMAPPED ${CMAKE_BINARY_DIR}/zephyr/${KERNEL_NAME}-remapped.elf)
+
+  if(${CMAKE_HOST_WIN32})
+    set(NULL_FILE nul)
+  elseif(${CMAKE_HOST_UNIX})
+    set(NULL_FILE /dev/null)
+  endif()
+
+  message(STATUS "Configured ${lib_list} as loadable modules.")
+
+  add_custom_target(loadable_modules_ld
+    COMMAND ${CMAKE_COMMAND}
+      -DLIBS="${lib_list}"
+      -DOUT_FILE="${PROJECT_BINARY_DIR}/include/generated/loadable_modules.ld"
+      -P ${LINKER_GENERATOR}
+    DEPENDS SOF
+  )
+  add_dependencies(intel_adsp_common loadable_modules_ld)
+
+
+  foreach(lib ${lib_list})
+    add_custom_target(${lib}.mod ALL
+      COMMENT "Extracting loadable module \"${lib}\" for rimage"
+      DEPENDS gen_modules
+
+      COMMAND ${CMAKE_OBJCOPY}
+          --only-section .loadable-${lib}-*
+          --set-section-flags .loadable-${lib}-manifest=noload,readonly
+          --rename-section .loadable-${lib}-text=.text
+          --rename-section .loadable-${lib}-rodata=.rodata
+          --rename-section .loadable-${lib}-data=.data
+          --rename-section .loadable-${lib}-bss=.bss
+          --rename-section .loadable-${lib}-manifest=.module
+          ${KERNEL_REMAPPED} ${CMAKE_BINARY_DIR}/zephyr/${lib}.mod
+          2>${NULL_FILE}
+    )
+
+  endforeach()
+endmacro()
+
+
