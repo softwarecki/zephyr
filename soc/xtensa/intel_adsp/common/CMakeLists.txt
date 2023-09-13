@@ -174,7 +174,9 @@ macro(zephyr_add_loadable lib_list)
 
 
   foreach(lib ${lib_list})
-    add_custom_target(${lib}.mod ALL
+    set(OUTPUT_FILE ${CMAKE_BINARY_DIR}/zephyr/${lib})
+
+    add_custom_target(${lib}.mod
       COMMENT "Extracting loadable module \"${lib}\" for rimage"
       DEPENDS gen_modules
 
@@ -186,8 +188,26 @@ macro(zephyr_add_loadable lib_list)
           --rename-section .loadable-${lib}-data=.data
           --rename-section .loadable-${lib}-bss=.bss
           --rename-section .loadable-${lib}-manifest=.module
-          ${KERNEL_REMAPPED} ${CMAKE_BINARY_DIR}/zephyr/${lib}.mod
+          ${KERNEL_REMAPPED} ${OUTPUT_FILE}.mod
           2>${NULL_FILE}
+    )
+
+    get_property(TOML_FILE TARGET loadable_library_${lib} PROPERTY TOML_FILE)
+
+    add_custom_target(${lib}.ri ALL
+      COMMENT "Signing loadable module \"${lib}\""
+      DEPENDS ${lib}.mod
+
+      COMMAND ${PROJECT_SOURCE_DIR}/../build-rimage/rimage
+          -l
+          -k ${CMAKE_SOURCE_DIR}/../keys/${RIMAGE_SIGN_KEY}
+          -f 2.0.0 -b 1
+          -o ${OUTPUT_FILE}.tmp
+          -c ${TOML_FILE}
+          -e ${OUTPUT_FILE}.mod
+
+      COMMAND ${CMAKE_COMMAND} -E
+          cat ${OUTPUT_FILE}.tmp.xman ${OUTPUT_FILE}.tmp > ${OUTPUT_FILE}.ri
     )
 
   endforeach()
