@@ -454,6 +454,16 @@ class RimageSigner(Signer):
             out_xman = str(b / 'zephyr' / f'{kernel_name}.ri.xman')
             out_tmp = str(b / 'zephyr' / f'{kernel_name}.rix')
 
+        # Support for signing loadable modules
+        if '-l' in args.tool_args:
+            module_name = args.tool_args.pop(args.tool_args.index('-l') + 1)
+
+            bootloader = None
+            kernel = str(b / 'zephyr' / f'{module_name}.mod')
+            out_bin = str(b / 'zephyr' / f'{module_name}.ri')
+            out_xman = str(b / 'zephyr' / f'{module_name}.ri.xman')
+            out_tmp = str(b / 'zephyr' / f'{module_name}.rix')
+
         # Clean any stale output. This is especially important when using --if-tool-available
         # (but not just)
         for o in [ out_bin, out_xman, out_tmp ]:
