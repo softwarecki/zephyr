@@ -198,16 +198,8 @@ macro(zephyr_add_loadable lib_list)
       COMMENT "Signing loadable module \"${lib}\""
       DEPENDS ${lib}.mod
 
-      COMMAND ${PROJECT_SOURCE_DIR}/../build-rimage/rimage
-          -l
-          -k ${CMAKE_SOURCE_DIR}/../keys/${RIMAGE_SIGN_KEY}
-          -f 2.0.0 -b 1
-          -o ${OUTPUT_FILE}.tmp
-          -c ${TOML_FILE}
-          -e ${OUTPUT_FILE}.mod
-
-      COMMAND ${CMAKE_COMMAND} -E
-          cat ${OUTPUT_FILE}.tmp.xman ${OUTPUT_FILE}.tmp > ${OUTPUT_FILE}.ri
+      COMMAND west sign --if-tool-available --tool rimage --build-dir ${CMAKE_BINARY_DIR} ${WEST_SIGN_OPTS} --
+          -c ${TOML_FILE} -l ${lib}
     )
 
   endforeach()
