@@ -428,12 +428,12 @@ static inline void __arch_mem_map(void *va, uintptr_t pa, uint32_t xtensa_flags,
 
 	ret = l2_page_table_map(xtensa_kernel_ptables, (void *)vaddr, paddr,
 				flags, is_user);
-	__ASSERT(ret, "Virtual address (%p) already mapped", va);
+	__ASSERT(ret, "Unable to map virtual address %p", va);
 
 	if (IS_ENABLED(CONFIG_XTENSA_MMU_DOUBLE_MAP) && ret) {
 		ret = l2_page_table_map(xtensa_kernel_ptables, (void *)vaddr_uc, paddr_uc,
 					flags_uc, is_user);
-		__ASSERT(ret, "Virtual address (%p) already mapped", vaddr_uc);
+		__ASSERT(ret, "Unable to map virtual address %p", vaddr_uc);
 	}
 
 #ifndef CONFIG_USERSPACE
@@ -450,14 +450,14 @@ static inline void __arch_mem_map(void *va, uintptr_t pa, uint32_t xtensa_flags,
 
 			ret = l2_page_table_map(domain->ptables, (void *)vaddr, paddr,
 						flags, is_user);
-			__ASSERT(ret, "Virtual address (%p) already mapped for domain %p",
+			__ASSERT(ret, "Unable to map virtual address %p for domain %p",
 				 vaddr, domain);
 
 			if (IS_ENABLED(CONFIG_XTENSA_MMU_DOUBLE_MAP) && ret) {
 				ret = l2_page_table_map(domain->ptables,
 							(void *)vaddr_uc, paddr_uc,
 							flags_uc, is_user);
-				__ASSERT(ret, "Virtual address (%p) already mapped for domain %p",
+				__ASSERT(ret, "Unable to map virtual address %p for domain %p",
 					 vaddr_uc, domain);
 			}
 		}
@@ -823,7 +823,6 @@ int arch_mem_domain_init(struct k_mem_domain *domain)
 		domain->arch.asid = asid_count;
 		goto end;
 	}
-
 
 	ptables = dup_table();
 
