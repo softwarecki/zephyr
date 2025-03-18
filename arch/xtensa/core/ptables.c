@@ -359,12 +359,13 @@ __weak void arch_reserved_pages_update(void)
 }
 #endif /* CONFIG_ARCH_HAS_RESERVED_PAGE_FRAMES */
 
-static bool l2_page_table_map(uint32_t *l1_table, void *vaddr, uintptr_t phys,
-			      uint32_t flags, bool is_user)
+static bool l2_page_table_map(uint32_t *l1_table, void *vaddr, uintptr_t phys, uint32_t flags,
+			      int ring)
 {
 	uint32_t l1_pos = XTENSA_MMU_L1_POS((uint32_t)vaddr);
 	uint32_t l2_pos = XTENSA_MMU_L2_POS((uint32_t)vaddr);
 	uint32_t *table;
+	uint32_t sw_flags = flags;
 
 	sys_cache_data_invd_range((void *)&l1_table[l1_pos], sizeof(l1_table[0]));
 
@@ -384,9 +385,7 @@ static bool l2_page_table_map(uint32_t *l1_table, void *vaddr, uintptr_t phys,
 	}
 
 	table = (uint32_t *)(l1_table[l1_pos] & XTENSA_MMU_PTE_PPN_MASK);
-	table[l2_pos] = XTENSA_MMU_PTE(phys, is_user ? XTENSA_MMU_USER_RING :
-						       XTENSA_MMU_KERNEL_RING,
-				       0, flags);
+	table[l2_pos] = XTENSA_MMU_PTE(phys, ring, sw_flags, flags);
 
 	sys_cache_data_flush_range((void *)&table[l2_pos], sizeof(table[0]));
 	xtensa_tlb_autorefill_invalidate();
@@ -394,7 +393,7 @@ static bool l2_page_table_map(uint32_t *l1_table, void *vaddr, uintptr_t phys,
 	return true;
 }
 
-static inline void __arch_mem_map(void *va, uintptr_t pa, uint32_t xtensa_flags, bool is_user)
+static inline void __arch_mem_map(void *va, uintptr_t pa, uint32_t xtensa_flags, int ring)
 {
 	bool ret;
 	void *vaddr, *vaddr_uc;
@@ -427,12 +426,12 @@ static inline void __arch_mem_map(void *va, uintptr_t pa, uint32_t xtensa_flags,
 	}
 
 	ret = l2_page_table_map(xtensa_kernel_ptables, (void *)vaddr, paddr,
-				flags, is_user);
+				flags, ring);
 	__ASSERT(ret, "Unable to map virtual address %p", va);
 
 	if (IS_ENABLED(CONFIG_XTENSA_MMU_DOUBLE_MAP) && ret) {
 		ret = l2_page_table_map(xtensa_kernel_ptables, (void *)vaddr_uc, paddr_uc,
-					flags_uc, is_user);
+					flags_uc, ring);
 		__ASSERT(ret, "Unable to map virtual address %p", vaddr_uc);
 	}
 
@@ -449,14 +448,14 @@ static inline void __arch_mem_map(void *va, uintptr_t pa, uint32_t xtensa_flags,
 			domain = CONTAINER_OF(node, struct arch_mem_domain, node);
 
 			ret = l2_page_table_map(domain->ptables, (void *)vaddr, paddr,
-						flags, is_user);
+						flags, ring);
 			__ASSERT(ret, "Unable to map virtual address %p for domain %p",
 				 vaddr, domain);
 
 			if (IS_ENABLED(CONFIG_XTENSA_MMU_DOUBLE_MAP) && ret) {
 				ret = l2_page_table_map(domain->ptables,
 							(void *)vaddr_uc, paddr_uc,
-							flags_uc, is_user);
+							flags_uc, ring);
 				__ASSERT(ret, "Unable to map virtual address %p for domain %p",
 					 vaddr_uc, domain);
 			}
@@ -473,7 +472,13 @@ void arch_mem_map(void *virt, uintptr_t phys, size_t size, uint32_t flags)
 	uint32_t rem_size = (uint32_t)size;
 	uint32_t xtensa_flags = 0;
 	k_spinlock_key_t key;
-	bool is_user;
+	int ring = XTENSA_MMU_KERNEL_RING;
+
+	if (flags & K_MEM_PERM_USER)
+		ring = XTENSA_MMU_USER_RING;
+
+	if (flags & K_MEM_DIRECT_MAP)
+		ring = XTENSA_MMU_SHARED_RING;
 
 	if (size == 0) {
 		LOG_ERR("Cannot map physical memory at 0x%08X: invalid "
@@ -502,12 +507,11 @@ void arch_mem_map(void *virt, uintptr_t phys, size_t size, uint32_t flags)
 		xtensa_flags |= XTENSA_MMU_PERM_X;
 	}
 
-	is_user = (flags & K_MEM_PERM_USER) == K_MEM_PERM_USER;
 
 	key = k_spin_lock(&xtensa_mmu_lock);
 
 	while (rem_size > 0) {
-		__arch_mem_map((void *)va, pa, xtensa_flags, is_user);
+		__arch_mem_map((void *)va, pa, xtensa_flags, ring);
 
 		rem_size -= (rem_size >= KB(4)) ? KB(4) : rem_size;
 		va += KB(4);
