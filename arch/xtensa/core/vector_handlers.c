@@ -217,6 +217,8 @@ static inline unsigned int get_bits(int offset, int num_bits, unsigned int val)
 	return val & mask;
 }
 
+volatile int fatal_hang = 0;
+__attribute__((optimize("-O0")))
 static void print_fatal_exception(void *print_stack, int cause,
 				  bool is_dblexc, uint32_t depc)
 {
@@ -260,6 +262,8 @@ static void print_fatal_exception(void *print_stack, int cause,
 		get_bits(5, 1, ps), get_bits(6, 2, ps),
 		get_bits(18, 1, ps),
 		get_bits(8, 4, ps), get_bits(16, 2, ps));
+
+	while (fatal_hang);
 }
 
 static ALWAYS_INLINE void usage_stop(void)
