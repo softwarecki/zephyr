@@ -660,7 +660,7 @@ static int thread_perms_test(struct k_object *ko)
 	}
 	return 0;
 }
-
+__attribute__((optimize("-O0")))
 static void dump_permission_error(struct k_object *ko)
 {
 	int index = thread_index_get(_current);
@@ -669,7 +669,7 @@ static void dump_permission_error(struct k_object *ko)
 		otype_to_str(ko->type), ko->name);
 	LOG_HEXDUMP_ERR(ko->perms, sizeof(ko->perms), "permission bitmap");
 }
-
+__attribute__((optimize("-O0")))
 void k_object_dump_error(int retval, const void *obj, struct k_object *ko,
 			enum k_objects otype)
 {
@@ -678,22 +678,28 @@ void k_object_dump_error(int retval, const void *obj, struct k_object *ko,
 		LOG_ERR("%p is not a valid %s", obj, otype_to_str(otype));
 		if (ko == NULL) {
 			LOG_ERR("address is not a known kernel object");
+			while (1);
 		} else {
 			LOG_ERR("address is actually a %s",
 				otype_to_str(ko->type));
+			while (1);
 		}
 		break;
 	case -EPERM:
 		dump_permission_error(ko);
+		while (1);
 		break;
 	case -EINVAL:
 		LOG_ERR("%p used before initialization", obj);
+		while (1);
 		break;
 	case -EADDRINUSE:
 		LOG_ERR("%p %s in use", obj, otype_to_str(otype));
+		while (1);
 		break;
 	default:
 		/* Not handled error */
+		while (1);
 		break;
 	}
 }

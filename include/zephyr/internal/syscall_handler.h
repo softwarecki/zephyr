@@ -519,7 +519,7 @@ int k_usermode_string_copy(char *dst, const char *src, size_t maxlen);
  */
 #define K_SYSCALL_MEMORY_ARRAY_WRITE(ptr, nmemb, size) \
 	K_SYSCALL_MEMORY_ARRAY(ptr, nmemb, size, 1)
-
+__attribute__((optimize("-O0")))
 static inline int k_object_validation_check(struct k_object *ko,
 					 const void *obj,
 					 enum k_objects otype,

@@ -103,10 +103,12 @@ void z_impl_k_sem_give(struct k_sem *sem)
 	thread = z_unpend_first_thread(&sem->wait_q);
 
 	if (unlikely(thread != NULL)) {
+		sem->owner = thread;
 		arch_thread_return_value_set(thread, 0);
 		z_ready_thread(thread);
 		resched = true;
 	} else {
+		sem->owner = NULL;
 		sem->count += (sem->count != sem->limit) ? 1U : 0U;
 		resched = handle_poll_events(sem);
 	}
@@ -132,7 +134,7 @@ static inline void z_vrfy_k_sem_give(struct k_sem *sem)
 int z_impl_k_sem_take(struct k_sem *sem, k_timeout_t timeout)
 {
 	int ret;
-
+	// HR ticket HR2011660
 	__ASSERT(((arch_is_in_isr() == false) ||
 		  K_TIMEOUT_EQ(timeout, K_NO_WAIT)), "");
 
@@ -141,6 +143,7 @@ int z_impl_k_sem_take(struct k_sem *sem, k_timeout_t timeout)
 	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_sem, take, sem, timeout);
 
 	if (likely(sem->count > 0U)) {
+		sem->owner = _current;
 		sem->count--;
 		k_spin_unlock(&lock, key);
 		ret = 0;

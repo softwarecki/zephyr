@@ -3252,6 +3252,7 @@ struct k_sem {
 	_wait_q_t wait_q;
 	unsigned int count;
 	unsigned int limit;
+	struct k_thread *owner;
 
 	Z_DECL_POLL_EVENT
 
