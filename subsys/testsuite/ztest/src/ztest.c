@@ -192,9 +192,9 @@ static void cpu_hold(void *arg1, void *arg2, void *arg3)
 		cpuhold_spawned = false;
 
 		cpuhold_pool_items[i].used = true;
-		k_thread_create(&cpuhold_pool_items[i].thread, cpuhold_stacks[i], CPUHOLD_STACK_SZ,
-				cpu_hold, k_current_get(), (void *)(uintptr_t)idx, NULL,
-				K_HIGHEST_THREAD_PRIO, 0, K_NO_WAIT);
+		k_thread_create(&cpuhold_pool_items[i].thread, cpuhold_stacks[i],
+				K_THREAD_STACK_SIZEOF(cpuhold_stacks[i]), cpu_hold, k_current_get(),
+				(void *)(uintptr_t)idx, NULL, K_HIGHEST_THREAD_PRIO, 0, K_NO_WAIT);
 
 		/*
 		 * Busy-wait until we know the spawned thread is running to
@@ -272,9 +272,9 @@ void z_impl_z_test_1cpu_start(void)
 		__ASSERT_NO_MSG(j != -1);
 
 		cpuhold_pool_items[j].used = true;
-		k_thread_create(&cpuhold_pool_items[j].thread, cpuhold_stacks[j], CPUHOLD_STACK_SZ,
-				cpu_hold, NULL, (void *)(uintptr_t)i, NULL, K_HIGHEST_THREAD_PRIO,
-				0, K_NO_WAIT);
+		k_thread_create(&cpuhold_pool_items[j].thread, cpuhold_stacks[j],
+				K_THREAD_STACK_SIZEOF(cpuhold_stacks[j]), cpu_hold, NULL,
+				(void *)(uintptr_t)i, NULL, K_HIGHEST_THREAD_PRIO, 0, K_NO_WAIT);
 		k_sem_take(&cpuhold_sem, K_FOREVER);
 	}
 #endif
