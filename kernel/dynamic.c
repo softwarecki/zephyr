@@ -41,7 +41,6 @@ static k_thread_stack_t *z_thread_stack_alloc_pool(size_t size, int flags)
 
 	if (size > max_size) {
 		LOG_DBG("stack size %zu is > pool stack size %zu", size, max_size);
-			CONFIG_DYNAMIC_THREAD_STACK_SIZE);
 		return NULL;
 	}
 
