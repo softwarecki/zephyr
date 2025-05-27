@@ -3253,6 +3253,7 @@ struct k_sem {
 	unsigned int count;
 	unsigned int limit;
 	struct k_thread *owner;
+	unsigned int gtfo;
 
 	Z_DECL_POLL_EVENT
 
@@ -3261,6 +3262,7 @@ struct k_sem {
 #ifdef CONFIG_OBJ_CORE_SEM
 	struct k_obj_core  obj_core;
 #endif
+	//unsigned int checkpoint;
 };
 
 #define Z_SEM_INITIALIZER(obj, initial_count, count_limit) \
@@ -3268,6 +3270,8 @@ struct k_sem {
 	.wait_q = Z_WAIT_Q_INIT(&(obj).wait_q), \
 	.count = (initial_count), \
 	.limit = (count_limit), \
+	.gtfo = (initial_count) == (count_limit), \
+	/*.checkpoint = 0xDEADBEAF, */\
 	Z_POLL_EVENT_OBJ_INIT(obj) \
 	}
 

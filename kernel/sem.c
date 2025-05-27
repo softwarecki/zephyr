@@ -42,6 +42,26 @@ static struct k_spinlock lock;
 static struct k_obj_type obj_type_sem;
 #endif /* CONFIG_OBJ_CORE_SEM */
 
+volatile static struct k_sem *debug_sem;
+
+#if 0
+#define SEM_CHECKPOINT_INIT(sem) do { sem->checkpoint = 0xDEADBEAF; } while (0)
+#define SEM_CHECKPOINT(sem)					\
+	do {							\
+		debug_sem = sem;				\
+		while (sem->checkpoint != 0xDEADBEAF);		\
+		if (sem->checkpoint != 0xDEADBEAF) {		\
+			arch_irq_lock();			\
+			__asm__ volatile("BREAK 0, 0\n");	\
+			__asm__ volatile("ILL\n");		\
+			__asm__ volatile("WAITI 0\n");		\
+		}						\
+	} while (0)
+#else
+#define SEM_CHECKPOINT_INIT(sem) do { } while (0)
+#define SEM_CHECKPOINT(sem) do{}while (0)
+#endif
+
 int z_impl_k_sem_init(struct k_sem *sem, unsigned int initial_count,
 		      unsigned int limit)
 {
@@ -53,9 +73,11 @@ int z_impl_k_sem_init(struct k_sem *sem, unsigned int initial_count,
 
 		return -EINVAL;
 	}
-
+	sem->owner = NULL;
 	sem->count = initial_count;
 	sem->limit = limit;
+	SEM_CHECKPOINT_INIT(sem);
+	sem->gtfo = initial_count == limit;
 
 	SYS_PORT_TRACING_OBJ_FUNC(k_sem, init, sem, 0);
 
@@ -103,7 +125,7 @@ void z_impl_k_sem_give(struct k_sem *sem)
 	thread = z_unpend_first_thread(&sem->wait_q);
 
 	if (unlikely(thread != NULL)) {
-		sem->owner = thread;
+		sem->owner = (struct k_thread*)((uint32_t)thread | 0x80000000);
 		arch_thread_return_value_set(thread, 0);
 		z_ready_thread(thread);
 		resched = true;
@@ -126,6 +148,7 @@ void z_impl_k_sem_give(struct k_sem *sem)
 static inline void z_vrfy_k_sem_give(struct k_sem *sem)
 {
 	K_OOPS(K_SYSCALL_OBJ(sem, K_OBJ_SEM));
+	SEM_CHECKPOINT(sem);
 	z_impl_k_sem_give(sem);
 }
 #include <zephyr/syscalls/k_sem_give_mrsh.c>
@@ -142,13 +165,14 @@ int z_impl_k_sem_take(struct k_sem *sem, k_timeout_t timeout)
 
 	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_sem, take, sem, timeout);
 
-	if (likely(sem->count > 0U)) {
-		sem->owner = _current;
-		sem->count--;
-		k_spin_unlock(&lock, key);
-		ret = 0;
-		goto out;
+	if (sem->gtfo && (sem->owner == _current)) {
+		arch_irq_lock();
+		__asm__ volatile("BREAK 0, 0\n");
+		__asm__ volatile("ILL\n");
+		__asm__ volatile("WAITI 0\n");
 	}
+
+	//sem->gtfo = sem->owner == _current;
 
 	if (K_TIMEOUT_EQ(timeout, K_NO_WAIT)) {
 		k_spin_unlock(&lock, key);
@@ -198,6 +222,8 @@ void z_impl_k_sem_reset(struct k_sem *sem)
 static inline int z_vrfy_k_sem_take(struct k_sem *sem, k_timeout_t timeout)
 {
 	K_OOPS(K_SYSCALL_OBJ(sem, K_OBJ_SEM));
+	SEM_CHECKPOINT(sem);
+
 	return z_impl_k_sem_take(sem, timeout);
 }
 #include <zephyr/syscalls/k_sem_take_mrsh.c>
@@ -205,6 +231,8 @@ static inline int z_vrfy_k_sem_take(struct k_sem *sem, k_timeout_t timeout)
 static inline void z_vrfy_k_sem_reset(struct k_sem *sem)
 {
 	K_OOPS(K_SYSCALL_OBJ(sem, K_OBJ_SEM));
+	SEM_CHECKPOINT(sem);
+
 	z_impl_k_sem_reset(sem);
 }
 #include <zephyr/syscalls/k_sem_reset_mrsh.c>
@@ -212,6 +240,8 @@ static inline void z_vrfy_k_sem_reset(struct k_sem *sem)
 static inline unsigned int z_vrfy_k_sem_count_get(struct k_sem *sem)
 {
 	K_OOPS(K_SYSCALL_OBJ(sem, K_OBJ_SEM));
+	SEM_CHECKPOINT(sem);
+
 	return z_impl_k_sem_count_get(sem);
 }
 #include <zephyr/syscalls/k_sem_count_get_mrsh.c>

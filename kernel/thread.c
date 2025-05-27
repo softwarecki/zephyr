@@ -453,7 +453,7 @@ static char *setup_thread_stack(struct k_thread *new_thread,
 
 #endif /* CONFIG_THREAD_STACK_MEM_MAPPED */
 
-	LOG_DBG("stack %p for thread %p: obj_size=%zu buf_start=%p "
+	LOG_ERR("stack %p for thread %p: obj_size=%zu buf_start=%p "
 		" buf_size %zu stack_ptr=%p",
 		stack, new_thread, stack_obj_size, (void *)stack_buf_start,
 		stack_buf_size, (void *)stack_ptr);
@@ -506,6 +506,7 @@ static char *setup_thread_stack(struct k_thread *new_thread,
  * K_THREAD_STACK_SIZEOF(stack), or the size value passed to the instance
  * of K_THREAD_STACK_DEFINE() which defined 'stack'.
  */
+#define THREAD_DEBUG(x)		(x)->line = __LINE__
 char *z_setup_new_thread(struct k_thread *new_thread,
 			 k_thread_stack_t *stack, size_t stack_size,
 			 k_thread_entry_t entry,
@@ -513,56 +514,77 @@ char *z_setup_new_thread(struct k_thread *new_thread,
 			 int prio, uint32_t options, const char *name)
 {
 	char *stack_ptr;
-
+	THREAD_DEBUG(new_thread);
 	Z_ASSERT_VALID_PRIO(prio, entry);
+	THREAD_DEBUG(new_thread);
 
 #ifdef CONFIG_THREAD_ABORT_NEED_CLEANUP
+	THREAD_DEBUG(new_thread);
 	k_thread_abort_cleanup_check_reuse(new_thread);
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_THREAD_ABORT_NEED_CLEANUP */
+	THREAD_DEBUG(new_thread);
 
 #ifdef CONFIG_OBJ_CORE_THREAD
+	THREAD_DEBUG(new_thread);
 	k_obj_core_init_and_link(K_OBJ_CORE(new_thread), &obj_type_thread);
 #ifdef CONFIG_OBJ_CORE_STATS_THREAD
+	THREAD_DEBUG(new_thread);
 	k_obj_core_stats_register(K_OBJ_CORE(new_thread),
 				  &new_thread->base.usage,
 				  sizeof(new_thread->base.usage));
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_OBJ_CORE_STATS_THREAD */
 #endif /* CONFIG_OBJ_CORE_THREAD */
 
 #ifdef CONFIG_USERSPACE
+	THREAD_DEBUG(new_thread);
 	__ASSERT((options & K_USER) == 0U || z_stack_is_user_capable(stack),
 		 "user thread %p with kernel-only stack %p",
 		 new_thread, stack);
+	THREAD_DEBUG(new_thread);
 	k_object_init(new_thread);
+	THREAD_DEBUG(new_thread);
 	k_object_init(stack);
+	THREAD_DEBUG(new_thread);
 	new_thread->stack_obj = stack;
+	THREAD_DEBUG(new_thread);
 	new_thread->syscall_frame = NULL;
+	THREAD_DEBUG(new_thread);
 
 	/* Any given thread has access to itself */
 	k_object_access_grant(new_thread, new_thread);
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_USERSPACE */
 	z_waitq_init(&new_thread->join_queue);
+	THREAD_DEBUG(new_thread);
 
 	/* Initialize various struct k_thread members */
 	z_init_thread_base(&new_thread->base, prio, _THREAD_SLEEPING, options);
+	THREAD_DEBUG(new_thread);
 	stack_ptr = setup_thread_stack(new_thread, stack, stack_size);
+	THREAD_DEBUG(new_thread);
 
 #ifdef CONFIG_KERNEL_COHERENCE
 	/* Check that the thread object is safe, but that the stack is
 	 * still cached!
 	 */
 	__ASSERT_NO_MSG(arch_mem_coherent(new_thread));
+	THREAD_DEBUG(new_thread);
 
 	/* When dynamic thread stack is available, the stack may come from
 	 * uncached area.
 	 */
 #ifndef CONFIG_DYNAMIC_THREAD
+	THREAD_DEBUG(new_thread);
 	__ASSERT_NO_MSG(!arch_mem_coherent(stack));
 #endif  /* CONFIG_DYNAMIC_THREAD */
 
 #endif /* CONFIG_KERNEL_COHERENCE */
 
+	THREAD_DEBUG(new_thread);
 	arch_new_thread(new_thread, stack, stack_ptr, entry, p1, p2, p3);
+	THREAD_DEBUG(new_thread);
 
 	/* static threads overwrite it afterwards with real value */
 	new_thread->init_data = NULL;
@@ -572,78 +594,115 @@ char *z_setup_new_thread(struct k_thread *new_thread,
 	 * for synchronization reasons.  Historically some notional
 	 * USE_SWITCH architectures have actually ignored the field
 	 */
+	THREAD_DEBUG(new_thread);
 	__ASSERT(new_thread->switch_handle != NULL,
 		 "arch layer failed to initialize switch_handle");
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_USE_SWITCH */
 #ifdef CONFIG_THREAD_CUSTOM_DATA
 	/* Initialize custom data field (value is opaque to kernel) */
+	THREAD_DEBUG(new_thread);
 	new_thread->custom_data = NULL;
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_THREAD_CUSTOM_DATA */
 #ifdef CONFIG_EVENTS
+	THREAD_DEBUG(new_thread);
 	new_thread->no_wake_on_timeout = false;
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_EVENTS */
 #ifdef CONFIG_THREAD_MONITOR
+	THREAD_DEBUG(new_thread);
 	new_thread->entry.pEntry = entry;
 	new_thread->entry.parameter1 = p1;
 	new_thread->entry.parameter2 = p2;
 	new_thread->entry.parameter3 = p3;
+	THREAD_DEBUG(new_thread);
 
 	k_spinlock_key_t key = k_spin_lock(&z_thread_monitor_lock);
+	THREAD_DEBUG(new_thread);
 
 	new_thread->next_thread = _kernel.threads;
+	THREAD_DEBUG(new_thread);
 	_kernel.threads = new_thread;
+	THREAD_DEBUG(new_thread);
 	k_spin_unlock(&z_thread_monitor_lock, key);
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_THREAD_MONITOR */
 #ifdef CONFIG_THREAD_NAME
+	THREAD_DEBUG(new_thread);
 	if (name != NULL) {
+		THREAD_DEBUG(new_thread);
 		strncpy(new_thread->name, name,
 			CONFIG_THREAD_MAX_NAME_LEN - 1);
+		THREAD_DEBUG(new_thread);
 		/* Ensure NULL termination, truncate if longer */
 		new_thread->name[CONFIG_THREAD_MAX_NAME_LEN - 1] = '\0';
+		THREAD_DEBUG(new_thread);
 #ifdef CONFIG_ARCH_HAS_THREAD_NAME_HOOK
+		THREAD_DEBUG(new_thread);
 		arch_thread_name_set(new_thread, name);
+		THREAD_DEBUG(new_thread);
 #endif /* CONFIG_ARCH_HAS_THREAD_NAME_HOOK */
 	} else {
+		THREAD_DEBUG(new_thread);
 		new_thread->name[0] = '\0';
 	}
 #endif /* CONFIG_THREAD_NAME */
+	THREAD_DEBUG(new_thread);
 #ifdef CONFIG_SCHED_CPU_MASK
 	if (IS_ENABLED(CONFIG_SCHED_CPU_MASK_PIN_ONLY)) {
+		THREAD_DEBUG(new_thread);
 		new_thread->base.cpu_mask = 1; /* must specify only one cpu */
 	} else {
+		THREAD_DEBUG(new_thread);
 		new_thread->base.cpu_mask = -1; /* allow all cpus */
 	}
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_SCHED_CPU_MASK */
 #ifdef CONFIG_ARCH_HAS_CUSTOM_SWAP_TO_MAIN
 	/* _current may be null if the dummy thread is not used */
 	if (!_current) {
+		THREAD_DEBUG(new_thread);
 		new_thread->resource_pool = NULL;
+		THREAD_DEBUG(new_thread);
 		return stack_ptr;
 	}
 #endif /* CONFIG_ARCH_HAS_CUSTOM_SWAP_TO_MAIN */
 #ifdef CONFIG_USERSPACE
+	THREAD_DEBUG(new_thread);
 	z_mem_domain_init_thread(new_thread);
+	THREAD_DEBUG(new_thread);
 
 	if ((options & K_INHERIT_PERMS) != 0U) {
+		THREAD_DEBUG(new_thread);
 		k_thread_perms_inherit(_current, new_thread);
 	}
 #endif /* CONFIG_USERSPACE */
 #ifdef CONFIG_SCHED_DEADLINE
+	THREAD_DEBUG(new_thread);
 	new_thread->base.prio_deadline = 0;
 #endif /* CONFIG_SCHED_DEADLINE */
+	THREAD_DEBUG(new_thread);
 	new_thread->resource_pool = _current->resource_pool;
 
 #ifdef CONFIG_SMP
+	THREAD_DEBUG(new_thread);
 	z_waitq_init(&new_thread->halt_queue);
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_SMP */
 
 #ifdef CONFIG_SCHED_THREAD_USAGE
+	THREAD_DEBUG(new_thread);
 	new_thread->base.usage = (struct k_cycle_stats) {};
+	THREAD_DEBUG(new_thread);
 	new_thread->base.usage.track_usage =
 		CONFIG_SCHED_THREAD_USAGE_AUTO_ENABLE;
+	THREAD_DEBUG(new_thread);
 #endif /* CONFIG_SCHED_THREAD_USAGE */
+	THREAD_DEBUG(new_thread);
 
 	SYS_PORT_TRACING_OBJ_FUNC(k_thread, create, new_thread);
+	THREAD_DEBUG(new_thread);
 
 	return stack_ptr;
 }

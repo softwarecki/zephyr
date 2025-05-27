@@ -86,6 +86,10 @@ char *xtensa_exccause(unsigned int cause_code)
 
 void xtensa_fatal_error(unsigned int reason, const struct arch_esf *esf)
 {
+	arch_irq_lock();			
+		__asm__ volatile("BREAK 0, 0\n");	
+		__asm__ volatile("ILL\n");		
+		__asm__ volatile("WAITI 0\n");		
 #ifdef CONFIG_EXCEPTION_DEBUG
 	if (esf != NULL) {
 		/* Don't want to get elbowed by xtensa_switch

@@ -271,7 +271,7 @@ struct k_thread {
 
 	/** threads waiting in k_thread_join() */
 	_wait_q_t join_queue;
-
+	int line;
 #if defined(CONFIG_POLL)
 	struct z_poller poller;
 #endif /* CONFIG_POLL */
