@@ -350,6 +350,7 @@ int k_usermode_string_copy(char *dst, const char *src, size_t maxlen);
 #define K_OOPS(expr) \
 	do { \
 		if (expr) { \
+			while(1); \
 			arch_syscall_oops(_current->syscall_frame); \
 		} \
 	} while (false)

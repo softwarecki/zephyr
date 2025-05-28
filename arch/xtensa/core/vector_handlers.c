@@ -339,7 +339,7 @@ DEF_INT_C_HANDLER(7)
 #endif
 
 static inline DEF_INT_C_HANDLER(1)
-
+__attribute__((optimize("-O0")))
 /* C handler for level 1 exceptions/interrupts.  Hooked from the
  * DEF_EXCINT 1 vector declaration in assembly code.  This one looks
  * different because exceptions and interrupts land at the same
