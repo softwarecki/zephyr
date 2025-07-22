@@ -386,7 +386,7 @@ static bool l2_page_table_map(uint32_t *l1_table, void *vaddr, uintptr_t phys,
 	table = (uint32_t *)(l1_table[l1_pos] & XTENSA_MMU_PTE_PPN_MASK);
 	table[l2_pos] = XTENSA_MMU_PTE(phys, is_user ? XTENSA_MMU_USER_RING :
 						       XTENSA_MMU_KERNEL_RING,
-				       0, flags);
+				       is_user ? flags : 0, flags);
 
 	sys_cache_data_flush_range((void *)&table[l2_pos], sizeof(table[0]));
 	xtensa_tlb_autorefill_invalidate();
